@@ -16,7 +16,6 @@ This repository runs the HSTGNN experiment for Network Digital Twins and generat
 - `ndt_project/pipeline.py`: core experiment implementation
 - `requirements.txt`: Python dependencies
 - `run_experiment.ps1`: simple PowerShell runner for the default single experiment
-- `generate_zoo_pdf_report.py`: optional PDF summary report generator
 
 ## Before You Run Anything
 
@@ -80,18 +79,6 @@ Multi-topology suite:
 ```powershell
 python ndt_experiment.py --mode multi --output-root multi_topology_runs
 ```
-
-## Generating the PDF Summary Report
-
-After you run the single experiment and produce `zoo_results`, you can generate a PDF summary report with:
-
-```powershell
-python generate_zoo_pdf_report.py
-```
-
-This will create:
-
-- `Zoo_Results_Summary_Report.pdf`
 
 ## Expected Outputs
 
