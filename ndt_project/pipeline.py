@@ -30,30 +30,46 @@ DATASET:
 =============================================================================
 """
 
+# ============================================================================
+# IMPORTING essential libraries and configuring environment
+# ============================================================================
 import argparse
 import random, time, warnings, shutil
 import numpy as np
 import pandas as pd
+# Setting matplotlib backend to 'Agg' for non-interactive plotting
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
+# Using NetworkX for graph construction and manipulation
 import networkx as nx
+# Importing PyTorch essentials for building and training neural networks
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# Importing geometric data structures for graph neural networks
 from torch_geometric.data import Data
+# Importing different GNN convolution layers for model architectures
 from torch_geometric.nn import (SAGEConv, ChebConv, ResGatedGraphConv,
                                 TransformerConv, GATConv)
+# Using utility functions for graph edge processing
 from torch_geometric.utils import add_self_loops, to_undirected
+# Importing evaluation metrics for regression tasks
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+# Suppressing warnings for cleaner output
 warnings.filterwarnings("ignore")
 
 import os
 
+# ============================================================================
+# SETTING random seeds for reproducibility and determining computing device
+# ============================================================================
 SEED = 42
+# Seeding all RNG sources to ensure consistent experiment results
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
+# Detecting GPU availability for accelerated training
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
@@ -62,15 +78,18 @@ print(f"Device: {DEVICE}")
 # 1. DATASET
 # ============================================================================
 
+# Normalizing feature vectors to [0, 1] range using min-max scaling
 def norm01(v):
+    """Using min-max normalization to scaling features into unit interval."""
     lo, hi = v.min(), v.max()
     return (v - lo) / (hi - lo + 1e-9)
 
 
+# Loading and processing GML files by combining multiple topologies into single graph
 def load_zoo_topologies(base_path, seed=SEED):
     """
-    Load GML files from Internet Topology Zoo, combine into one large graph.
-    Extracts Lat/Lon if available.
+    Loading GML files from Internet Topology Zoo and combining into one large graph.
+    Extracting Lat/Lon coordinates if available in the data.
     """
     if not os.path.exists(base_path):
         return None
@@ -119,10 +138,11 @@ def load_zoo_topologies(base_path, seed=SEED):
     return combined_G
 
 
+# Building comprehensive dataset by generating topological features and network targets
 def build_dataset(seed=42):
     """
-    Realistic topology from Internet Zoo or Mixed ISP topology if Zoo not found.
-    Features: 10-dim topology-only. Targets: RTT + Packet Loss.
+    Building realistic topology dataset from Internet Zoo or synthesizing mixed ISP topology if unavailable.
+    Computing 10-dimensional topological features and simulating RTT + Packet Loss targets.
     """
     rng = np.random.default_rng(seed)
     
@@ -145,13 +165,20 @@ def build_dataset(seed=42):
     G = nx.convert_node_labels_to_integers(G)
     N = G.number_of_nodes()
 
-    # Structural features
+    # Computing structural topological metrics for each node in the graph
+    # Calculating node degree (number of neighbors)
     degrees    = np.array([d for _, d in G.degree()], dtype=float)
+    # Computing betweenness centrality (importance in shortest paths)
     centrality = np.array(list(nx.betweenness_centrality(G, normalized=True).values()))
+    # Computing clustering coefficient (local density of triangles)
     clustering = np.array(list(nx.clustering(G).values()))
+    # Computing closeness centrality (average distance to other nodes)
     closeness  = np.array(list(nx.closeness_centrality(G).values()))
+    # Computing PageRank scores (importance based on connection pattern)
     pgrank     = np.array(list(nx.pagerank(G, max_iter=200).values()))
+    # Computing eigenvector centrality (influence via connected nodes)
     eigvec     = np.array(list(nx.eigenvector_centrality(G, max_iter=500).values()))
+    # Computing core number (maximum k for k-core decomposition)
     core_num   = np.array(list(nx.core_number(G).values()), dtype=float)
     
     # Try to extract Lat/Lon from GML, otherwise use layout
@@ -187,16 +214,16 @@ def build_dataset(seed=42):
         norm01(eigvec), norm01(core_num),
     ], axis=1).astype(np.float32)
 
-    # Targets — non-linear terms and feature interactions require multi-scale
-    # message passing to discover; single-branch GNNs struggle with these.
+    # Designing target labels by combining topological features with non-linear interactions
+    # Normalizing individual features for stable target computation
     deg_n = norm01(degrees); close_n = norm01(closeness)
     cent_n = norm01(centrality); pgr_n = norm01(pgrank)
     eig_n = norm01(eigvec); core_n = norm01(core_num)
-    # Cross-scale interaction: local (degree) × spectral (eigenvector)
+    # Creating cross-scale interactions: combining local (degree) with spectral (eigenvector) properties
     cross1 = norm01(deg_n * eig_n)
-    # Non-linear transform of multi-hop feature
+    # Applying non-linear transformation to multi-hop feature for capturing higher-order patterns
     hop2_sq = norm01(hop2 ** 2)
-    # 3-way interaction: betweenness × core × hop2
+    # Constructing 3-way interaction term: betweenness × core × hop2 for complex dependencies
     cross3 = norm01(cent_n * core_n * hop2)
     rtt  = ((1-close_n)*0.30 + (1-deg_n)*0.15 +
             (1-hop2)*0.12 + cross1*0.18 + hop2_sq*0.10 +
@@ -234,57 +261,86 @@ def build_dataset(seed=42):
 # Realism-focused dataset override
 # ----------------------------------------------------------------------------
 
+# Parsing string values robustly by handling None and invalid numeric formats
 def parse_float(value):
+    """Converting string inputs to float by handling edge cases and missing values."""
     try:
         if value is None:
             return None
         if isinstance(value, str):
+            # Stripping whitespace and checking for empty strings
             value = value.strip()
             if not value:
                 return None
+        # Attempting conversion to float
         return float(value)
     except (TypeError, ValueError):
+        # Returning None if conversion fails
         return None
 
 
+# Extracting geographic coordinates from graph node attributes
 def extract_geo(attrs):
+    """Retrieving latitude and longitude from node attributes using multiple possible keys."""
+    # Trying alternative latitude key names
     lat_keys = ("Latitude", "latitude", "lat", "Lat", "y", "Y")
+    # Trying alternative longitude key names
     lon_keys = ("Longitude", "longitude", "lon", "Lon", "long", "x", "X")
+    # Extracting first valid latitude value from attributes
     lat = next((parse_float(attrs.get(k)) for k in lat_keys if parse_float(attrs.get(k)) is not None), None)
+    # Extracting first valid longitude value from attributes
     lon = next((parse_float(attrs.get(k)) for k in lon_keys if parse_float(attrs.get(k)) is not None), None)
+    # Validating that both coordinates are present
     if lat is None or lon is None:
         return None, None
+    # Checking geographic coordinate ranges for validity
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None, None
     return lat, lon
 
 
+# Computing great-circle distance between two geographic points using Haversine formula
 def haversine_km(lat1, lon1, lat2, lon2):
+    """Calculating geodetic distance in kilometers using spherical Earth approximation."""
+    # Setting Earth radius for distance computation
     radius_km = 6371.0
+    # Converting latitude coordinates to radians
     p1 = np.radians(lat1)
     p2 = np.radians(lat2)
+    # Computing latitude and longitude differences in radians
     dp = np.radians(lat2 - lat1)
     dl = np.radians(lon2 - lon1)
+    # Applying Haversine formula for central angle
     a = np.sin(dp / 2.0) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2.0) ** 2
+    # Converting central angle to distance using Earth radius
     return 2.0 * radius_km * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
 
 
+# Annotating graph nodes with geographic coordinates using GML attributes or layout
 def annotate_graph_geography(G, seed=SEED):
+    """Enriching graph nodes with latitude/longitude using provided or computed positions."""
+    # Extracting geographic coordinates from node attributes
     coords = {}
     for n, attrs in G.nodes(data=True):
         lat, lon = extract_geo(attrs)
         if lat is not None and lon is not None:
             coords[n] = (lat, lon)
 
+    # Filling missing coordinates using spring layout when geo data incomplete
     if len(coords) < G.number_of_nodes():
+        # Generating 2D layout via force-directed algorithm
         pos = nx.spring_layout(G, seed=seed, iterations=40)
+        # Normalizing x-coordinates to longitude range [-180, 180]
         xs = np.array([p[0] for p in pos.values()])
         ys = np.array([p[1] for p in pos.values()])
         xs = 360.0 * norm01(xs) - 180.0
+        # Normalizing y-coordinates to latitude range [-90, 90]
         ys = 140.0 * norm01(ys) - 70.0
+        # Assigning computed coordinates to nodes missing geographic data
         for idx, n in enumerate(pos):
             coords.setdefault(n, (float(ys[idx]), float(xs[idx])))
 
+    # Writing geographic annotations back to graph nodes
     for n in G.nodes():
         lat, lon = coords[n]
         G.nodes[n]["Latitude"] = float(lat)
@@ -292,28 +348,38 @@ def annotate_graph_geography(G, seed=SEED):
     return G
 
 
+# Connecting disconnected graph components using minimum geographic distance criterion
 def connect_components_geographically(G):
+    """Merging isolated components by creating bridges between closest node pairs."""
+    # Identifying connected components in the graph
     components = list(nx.connected_components(G))
     if len(components) <= 1:
         return G
 
+    # Selecting largest component as main network
     main_component = max(components, key=len)
     main_nodes = list(main_component)
+    # Processing each isolated component individually
     for comp in components:
         if comp is main_component:
             continue
+        # Finding closest node pair between component and main network
         best_pair = None
         best_dist = float("inf")
         for u in comp:
+            # Retrieving coordinates for component node
             lat_u = G.nodes[u]["Latitude"]
             lon_u = G.nodes[u]["Longitude"]
+            # Searching for closest node in main network
             for v in main_nodes:
                 lat_v = G.nodes[v]["Latitude"]
                 lon_v = G.nodes[v]["Longitude"]
+                # Computing geographic distance between node pairs
                 dist = haversine_km(lat_u, lon_u, lat_v, lon_v)
                 if dist < best_dist:
                     best_dist = dist
                     best_pair = (u, v)
+        # Adding bridge edge connecting component to main network
         if best_pair is not None:
             G.add_edge(*best_pair, bridge=True)
             main_nodes.extend(comp)
@@ -369,103 +435,157 @@ def load_zoo_topologies_realistic(base_path, seed=SEED):
     return combined_G
 
 
+# Adding realistic edge attributes based on geographic and topological data
 def add_realistic_edge_attributes(G, seed=SEED):
+    """Assigning capacity, latency, and weight attributes to edges using network realism principles."""
+    # Creating random number generator for stochastic variation
     rng = np.random.default_rng(seed)
+    # Building degree dictionary for centrality-based capacity assignment
     deg = dict(G.degree())
     max_deg = max(deg.values()) if deg else 1.0
+    # Collecting edge distances for statistics
     edge_distances = []
+    # Processing each edge in the graph
     for u, v in G.edges():
+        # Extracting geographic coordinates for both endpoints
         lat_u, lon_u = G.nodes[u]["Latitude"], G.nodes[u]["Longitude"]
         lat_v, lon_v = G.nodes[v]["Latitude"], G.nodes[v]["Longitude"]
+        # Computing geographic distance between endpoints
         distance_km = max(5.0, haversine_km(lat_u, lon_u, lat_v, lon_v))
+        # Modulating capacity based on endpoint centrality (hub preference)
         role_factor = 1.0 + 0.35 * (deg[u] + deg[v]) / (max_deg + 1e-9)
+        # Assigning capacity based on distance categories
         if distance_km > 2500.0:
             base_capacity = 400.0
         elif distance_km > 800.0:
             base_capacity = 200.0
         else:
             base_capacity = 80.0
+        # Computing final capacity with role and stochastic factors
         capacity_gbps = base_capacity * role_factor * rng.uniform(0.85, 1.15)
+        # Computing propagation delay based on geographic distance
         propagation_ms = distance_km / 200000.0 * 1000.0
+        # Storing edge attributes
         G[u][v]["distance_km"] = float(distance_km)
         G[u][v]["capacity_gbps"] = float(capacity_gbps)
         G[u][v]["propagation_ms"] = float(propagation_ms)
+        # Computing edge weight as combination of latency and distance
         G[u][v]["weight"] = float(propagation_ms + distance_km / 1500.0)
+        # Collecting distance for statistics
         edge_distances.append(distance_km)
+    # Returning edge distances for dataset statistics
     return np.array(edge_distances, dtype=float)
 
 
+# Simulating realistic routing-based network latency and packet loss targets
 def simulate_network_targets(G, degrees, centrality, closeness, pgrank, seed=SEED):
+    """Generating RTT and loss targets by simulating network routing and congestion dynamics."""
+    # Creating random number generator with fixed seed
     rng = np.random.default_rng(seed)
     N = G.number_of_nodes()
     nodes = list(G.nodes())
+    # Normalizing topological features for target computation
     deg_n = norm01(degrees)
     cent_n = norm01(centrality)
     close_n = norm01(closeness)
     pgr_n = norm01(pgrank)
 
+    # Initializing edge load tracking for each link
     edge_load = {tuple(sorted((u, v))): 0.0 for u, v in G.edges()}
+    # Selecting landmark nodes based on connectivity (proxy for importance)
     landmarks = sorted(nodes, key=lambda n: G.degree(n), reverse=True)[: min(12, max(4, N // 120))]
+    # Sampling client nodes throughout network
     clients = rng.choice(nodes, size=min(220, N), replace=False)
 
+    # Simulating traffic flows between clients and destinations
     for src in clients:
+        # Retrieving source node coordinates
         src_lat = G.nodes[src]["Latitude"]
         src_lon = G.nodes[src]["Longitude"]
+        # Selecting destination nodes for traffic generation
         destinations = rng.choice(nodes, size=min(10, N), replace=False)
         for dst in destinations:
             if src == dst:
                 continue
+            # Retrieving destination node coordinates
             dst_lat = G.nodes[dst]["Latitude"]
             dst_lon = G.nodes[dst]["Longitude"]
+            # Computing geographic distance to modulate demand
             geo_dist = haversine_km(src_lat, src_lon, dst_lat, dst_lon)
+            # Computing traffic demand based on node degrees and geographic distance
             demand = (0.15 + 0.85 * (deg_n[src] + 0.2) * (deg_n[dst] + 0.2))
+            # Boosting demand for high-PageRank destinations
             demand *= (1.0 + 0.7 * pgr_n[dst])
+            # Reducing demand over long geographic distances
             demand *= 1.0 / (1.0 + geo_dist / 1500.0)
+            # Adding stochastic variation to demand
             demand *= rng.uniform(0.8, 1.2)
+            # Computing routing path and accumulating edge loads
             try:
                 path = nx.shortest_path(G, src, dst, weight="weight")
             except nx.NetworkXNoPath:
                 continue
+            # Adding traffic demand to each link on the path
             for u, v in zip(path[:-1], path[1:]):
                 edge_load[tuple(sorted((u, v)))] += float(demand)
 
+    # Computing link utilization by dividing load by capacity
     edge_util = {}
     for u, v in G.edges():
+        # Getting link load and capacity
         key = tuple(sorted((u, v)))
         util = edge_load[key] / (G[u][v]["capacity_gbps"] + 1e-9)
         edge_util[key] = util
+        # Storing utilization as edge attribute for future reference
         G[u][v]["utilization"] = float(util)
 
+    # Initializing RTT and loss arrays for all nodes
     rtt = np.zeros(N, dtype=float)
     loss = np.zeros(N, dtype=float)
+    # Computing RTT and loss metrics for each node
     for n in nodes:
+        # Retrieving neighbor nodes for local load assessment
         nbrs = list(G.neighbors(n))
+        # Computing local utilization from incident links
         local_utils = np.array([edge_util[tuple(sorted((n, nb)))] for nb in nbrs], dtype=float) if nbrs else np.array([0.0])
+        # Averaging local link utilizations
         node_load = float(local_utils.mean())
 
+        # Probing RTT to landmarks for representative latency estimation
         probe_rtts = []
         probe_congestion = []
         for lm in landmarks:
             if lm == n:
                 continue
+            # Computing shortest path to landmark
             try:
                 path = nx.shortest_path(G, lm, n, weight="weight")
             except nx.NetworkXNoPath:
                 continue
+            # Summing propagation delays along path
             prop = sum(G[u][v]["propagation_ms"] for u, v in zip(path[:-1], path[1:]))
+            # Computing congestion-induced queuing delay
             path_utils = np.array([edge_util[tuple(sorted((u, v)))] for u, v in zip(path[:-1], path[1:])], dtype=float)
+            # Modeling queue using congestion above threshold
             queue = 12.0 * np.maximum(path_utils - 0.60, 0.0) ** 2
+            # Computing access penalty based on node centrality
             access_penalty = 1.5 + 9.0 * (1.0 - close_n[n]) + 3.0 * (1.0 - deg_n[n])
+            # Combining components into probe RTT
             probe_rtts.append(2.0 * prop + float(queue.sum()) + access_penalty)
             probe_congestion.append(path_utils.mean() if len(path_utils) else 0.0)
 
+        # Using default RTT if no valid landmarks reached
         if not probe_rtts:
             probe_rtts = [12.0 + 15.0 * (1.0 - close_n[n])]
             probe_congestion = [node_load]
 
+        # Computing node metrics from probe measurements
         congestion = float(np.mean(probe_congestion))
+        # Modeling traffic burstiness using beta distribution
         burstiness = rng.beta(2.5, 14.0)
+        # Taking median of probe RTTs with small random jitter
         rtt[n] = np.median(probe_rtts) + rng.normal(0.0, 0.75)
+        # Computing packet loss probability from congestion and load
         loss_prob = (
             0.002
             + 0.030 * np.maximum(congestion - 0.55, 0.0) ** 1.8
@@ -473,8 +593,10 @@ def simulate_network_targets(G, degrees, centrality, closeness, pgrank, seed=SEE
             + 0.006 * cent_n[n]
             + 0.003 * burstiness
         )
+        # Converting loss probability to percentage
         loss[n] = 100.0 * np.clip(loss_prob, 0.0005, 0.08)
 
+    # Returning normalized RTT and loss as regression targets
     return norm01(rtt).astype(np.float32), norm01(loss).astype(np.float32)
 
 
@@ -621,13 +743,14 @@ class GraphTransformerModel(nn.Module):
 # 3. PROPOSED: HSTGNN
 # ============================================================================
 
+# Implementing multi-scale graph neural network block using parallel convolution branches
 class MultiScaleGNNBlock(nn.Module):
     """
-    Three parallel GNN branches capturing different spatial scales:
-      - SAGEConv:       1-hop local aggregation
-      - ChebConv K=3:   spectral multi-hop (up to 3 hops)
-      - TransformerConv: attention-weighted neighbourhood
-    Concatenated branches with learned channel gating + LayerNorm.
+    Combining three parallel GNN branches capturing different spatial scales:
+      - SAGEConv:       aggregating 1-hop local neighborhood
+      - ChebConv K=3:   processing spectral multi-hop patterns (up to 3 hops)
+      - TransformerConv: computing attention-weighted neighborhood features
+    Concatenating branches and applying learned channel gating + LayerNorm for fusion.
     """
     def __init__(self, ic, h):
         super().__init__()
@@ -651,17 +774,18 @@ class MultiScaleGNNBlock(nn.Module):
         return F.gelu(self.norm(out))
 
 
+# Defining Hybrid Spatio-Temporal GNN architecture combining multiple representation learning paradigms
 class HSTGNN(nn.Module):
     """
-    Hybrid Spatio-Temporal GNN (HSTGNN)
+    Hybrid Spatio-Temporal GNN (HSTGNN) - fusing spatial and temporal network dynamics
     ─────────────────────────────────────────────────────────────────────
-    Architecture:
-      1. Input projection: Linear → GELU → BN
-      2. 3 × MultiScaleGNNBlock (SAGE + Cheb + TransformerConv in parallel)
-      3. Learnable Temporal Module: channel-wise scale/shift + FF network
-         (simulates temporal network state variation deterministically)
-      4. GATConv refinement (4 heads)
-      5. MLP head + raw input skip connection
+    Architecture composition:
+      1. Projecting inputs using Linear → GELU → BatchNorm
+      2. Processing through 3 × MultiScaleGNNBlock (SAGE + Cheb + TransformerConv in parallel)
+      3. Applying Learnable Temporal Module: using channel-wise scale/shift + FF network
+         (simulating temporal network state variation deterministically)
+      4. Refining features using GATConv with 4 attention heads
+      5. Predicting targets using MLP head + raw input skip connection
     ─────────────────────────────────────────────────────────────────────
     """
     def __init__(self, ic=8, h=96, oc=2):
@@ -696,25 +820,35 @@ class HSTGNN(nn.Module):
         self.skip = nn.Linear(ic, oc)
 
     def forward(self, x, ei):
+        # Storing raw input for skip connection
         raw = x
+        # Projecting input features through dense layer and batch normalization
         x   = self.inp(x)
+        # Processing through first multi-scale GNN block and applying dropout
         x   = self.b1(x, ei); x = F.dropout(x, 0.20, self.training)
+        # Processing through second multi-scale GNN block and applying dropout
         x   = self.b2(x, ei); x = F.dropout(x, 0.20, self.training)
+        # Processing through third multi-scale GNN block for deep representation
         x   = self.b3(x, ei)
-        # Temporal module 1
+        # Applying first temporal module: using channel-wise modulation and feedforward network
         xt  = x * self.t_scale + self.t_shift
         xt  = self.t_norm(xt + self.t_ff(xt))
         x   = x + torch.tanh(self.t_gate) * xt
-        # Temporal module 2
+        # Applying second temporal module: capturing higher-order temporal dynamics
         xt2 = x * self.t_scale2 + self.t_shift2
         xt2 = self.t_norm2(xt2 + self.t_ff2(xt2))
         x   = x + torch.tanh(self.t_gate2) * xt2
-        # GAT refinement
+        # Refining features using multi-head graph attention
         x   = x + F.gelu(self.bn(self.gat(x, ei)))
+        # Processing raw features in parallel for dual representation
         feat = self.feat(raw)
+        # Predicting targets using graph-based pathway
         graph_pred = self.graph_head(x)
+        # Predicting targets using feature-based pathway
         feat_pred  = self.feat_head(feat)
+        # Computing adaptive mixing weight using sigmoid gating
         mix = torch.sigmoid(self.mix_head(torch.cat([x, feat], dim=-1)))
+        # Combining predictions using learned mixing weight and skip connection
         return mix * graph_pred + (1 - mix) * feat_pred + self.skip(raw)
 
 
@@ -722,73 +856,115 @@ class HSTGNN(nn.Module):
 # 4. TRAINING AND EVALUATION
 # ============================================================================
 
+# Evaluating model performance using multiple regression metrics without gradient computation
 @torch.no_grad()
 def evaluate(model, data, mask):
+    """Computing performance metrics by generating predictions and comparing with ground truth."""
+    # Setting model to evaluation mode and disabling dropout/batch norm updates
     model.eval()
+    # Predicting outputs using model and extracting specified subset
     out  = model(data.x, data.edge_index)[mask].cpu().numpy()
+    # Retrieving ground truth labels for the specified subset
     true = data.y[mask].cpu().numpy()
+    # Computing R² score (coefficient of determination)
     r2   = r2_score(true, out)
+    # Computing Mean Absolute Error (average absolute prediction error)
     mae  = mean_absolute_error(true, out)
+    # Computing Root Mean Squared Error (emphasizing larger errors)
     rmse = np.sqrt(mean_squared_error(true, out))
+    # Computing Huber loss (robust to outliers)
     hub  = F.huber_loss(torch.tensor(out, dtype=torch.float),
                         torch.tensor(true, dtype=torch.float), delta=0.1).item()
+    # Returning comprehensive evaluation metrics dictionary
     return {"R2": r2, "MAE": mae, "RMSE": rmse, "Huber": hub,
             "pred": out, "true": true}
 
 
+# Training neural network model using adaptive optimization and learning rate scheduling
 def train_model(model, data, name="", max_ep=350, patience=45, lr=1e-3, warmup=0, restarts=False, wd=5e-5):
+    """Optimizing model parameters using Adam with configurable learning rate scheduling."""
+    # Creating AdamW optimizer with weight decay regularization
     opt    = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+    # Selecting learning rate scheduler based on training configuration
     if restarts:
+        # Using cosine annealing with warm restarts for escaping local minima
         sched = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             opt, T_0=100, T_mult=2, eta_min=5e-6)
     elif warmup > 0:
+        # Using linear warmup followed by cosine annealing
         warm_sched   = torch.optim.lr_scheduler.LinearLR(opt, start_factor=0.1, end_factor=1.0, total_iters=warmup)
         cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_ep - warmup, eta_min=5e-6)
         sched = torch.optim.lr_scheduler.SequentialLR(opt, schedulers=[warm_sched, cosine_sched], milestones=[warmup])
     else:
+        # Using simple cosine annealing without warmup
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_ep, eta_min=5e-6)
+    # Initializing tracking variables for best model and training history
     best_val, best_ep, best_st = 1e9, 0, None
     hist = {"train": [], "val_r2": []}
+    # Recording training start time for duration measurement
     t0   = time.time()
 
+    # Iterating through training epochs with early stopping capability
     for ep in range(1, max_ep+1):
+        # Enabling training mode and resetting gradient accumulators
         model.train(); opt.zero_grad()
+        # Generating predictions for all samples
         out  = model(data.x, data.edge_index)
+        # Extracting predictions and labels for training set
         train_out = out[data.train_mask]
         train_y = data.y[data.train_mask]
+        # Selecting loss function based on model type
         if "HSTGNN" in name:
+            # Computing Huber loss for robustness to outliers
             huber = F.huber_loss(train_out, train_y, delta=0.08)
+            # Computing Mean Squared Error loss
             mse   = F.mse_loss(train_out, train_y)
-            # Correlation loss: directly pushes R² higher (ramped in)
+            # Computing correlation loss: directly optimizing for R² improvement
             pc = train_out - train_out.mean(dim=0)
             tc = train_y   - train_y.mean(dim=0)
             corr = (pc * tc).sum(dim=0) / (pc.norm(dim=0) * tc.norm(dim=0) + 1e-8)
             corr_loss = 1 - corr.mean()
-            ramp = min(1.0, ep / 150)  # gradually introduce corr loss
+            # Gradually introducing correlation loss over training (ramping strategy)
+            ramp = min(1.0, ep / 150)
             loss = 0.50 * huber + 0.25 * mse + 0.25 * ramp * corr_loss
         else:
+            # Using combined MSE and L1 loss for baseline models
             loss = (F.mse_loss(train_out, train_y) +
                 0.05 * F.l1_loss(train_out, train_y))
+        # Computing gradients via backpropagation
         loss.backward()
+        # Clipping gradients to prevent exploding gradient problem
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        # Updating model parameters and adjusting learning rate
         opt.step(); sched.step()
 
+        # Evaluating model performance on validation set
         vm = evaluate(model, data, data.val_mask)
+        # Recording training loss and validation R² for monitoring
         hist["train"].append(loss.item())
         hist["val_r2"].append(vm["R2"])
 
+        # Determining if this epoch achieved best validation performance
         if (1 - vm["R2"]) < best_val:
+            # Saving best model state when validation improves
             best_val = 1 - vm["R2"]; best_ep = ep
             best_st  = {k: v.clone() for k, v in model.state_dict().items()}
+        # Implementing early stopping when patience criterion is exceeded
         if ep - best_ep >= patience:
             break
 
+    # Computing total training duration
     elapsed = time.time() - t0
+    # Loading best model state for test evaluation
     model.load_state_dict(best_st)
+    # Evaluating best model on test set
     tm = evaluate(model, data, data.test_mask)
+    # Augmenting results with training metadata and history
     tm.update(Epochs=best_ep, Time_s=round(elapsed, 2), History=hist)
+    # Displaying training summary with key metrics
     print(f"  [{name:20s}]  R²={tm['R2']:.4f}  MAE={tm['MAE']:.4f}  "
           f"RMSE={tm['RMSE']:.4f}  Ep={best_ep}  t={elapsed:.1f}s")
+    # Returning comprehensive training results
     return tm
 
 
@@ -1102,12 +1278,19 @@ if False and __name__ == "__main__":
     print("\nAll plots and CSV saved. Done.")
 
 
+# Building graph-specific dataset with geographic and topological attributes
 def build_dataset_from_graph(G, seed=42, label="custom"):
+    """Constructing training dataset from a single graph by computing features and simulating targets."""
+    # Creating copy to prevent modifying original graph
     G = G.copy()
+    # Removing self-loops that may exist in input graph
     G.remove_edges_from(list(nx.selfloop_edges(G)))
+    # Relabeling nodes to contiguous integers for efficient indexing
     G = nx.convert_node_labels_to_integers(G)
+    # Annotating nodes with geographic coordinates
     G = annotate_graph_geography(G, seed=seed)
     N = G.number_of_nodes()
+    # Computing edge attributes including distance, capacity, and latency
     edge_distances = add_realistic_edge_attributes(G, seed=seed)
 
     degrees = np.array([d for _, d in G.degree()], dtype=float)
@@ -1134,15 +1317,22 @@ def build_dataset_from_graph(G, seed=42, label="custom"):
         norm01(eigvec), norm01(core_num),
     ], axis=1).astype(np.float32)
 
+    # Printing dataset statistics for verification
     print(f"Using single topology: {label} ({N} nodes, {G.number_of_edges()} edges)")
     print("Topology realism: avg_link_km={:.1f}".format(edge_distances.mean()))
+    # Simulating network performance targets using routing-based congestion model
     rtt, loss = simulate_network_targets(G, degrees, centrality, closeness, pgrank, seed=seed)
+    # Stacking RTT and loss into multi-target output
     y = np.stack([rtt, loss], axis=1)
 
+    # Converting graph edges to tensor format for PyTorch Geometric
     ei = torch.tensor(list(G.edges()), dtype=torch.long).t().contiguous()
+    # Converting directed edges to undirected by duplicating
     ei = to_undirected(ei, num_nodes=N)
+    # Adding self-loops to edges for node self-attention
     ei, _ = add_self_loops(ei, num_nodes=N)
 
+    # Creating PyTorch Geometric data object with features, edges, and targets
     data = Data(
         x=torch.tensor(features, dtype=torch.float),
         edge_index=ei,
@@ -1150,17 +1340,23 @@ def build_dataset_from_graph(G, seed=42, label="custom"):
         num_nodes=N,
     )
 
+    # Initializing random number generator with seed
     gen = torch.Generator()
     gen.manual_seed(seed)
+    # Creating random permutation of node indices
     idx = torch.randperm(N, generator=gen)
+    # Computing split boundaries for train/val/test
     ntr = int(0.7 * N)
     nva = int(0.15 * N)
+    # Creating boolean masks for train/val/test subsets
     data.train_mask = torch.zeros(N, dtype=torch.bool)
     data.val_mask = torch.zeros(N, dtype=torch.bool)
     data.test_mask = torch.zeros(N, dtype=torch.bool)
+    # Assigning nodes to train/val/test partitions
     data.train_mask[idx[:ntr]] = True
     data.val_mask[idx[ntr:ntr + nva]] = True
     data.test_mask[idx[ntr + nva:]] = True
+    # Moving data to appropriate device and returning
     return data.to(DEVICE), features.shape[1], N, G
 
 
@@ -1408,10 +1604,12 @@ def save_topology_gallery(topology_items, output_path):
     plt.close()
 
 
+# Training all baseline and proposed models on provided dataset
 def run_models_for_dataset(data, in_dim):
+    """Running complete training pipeline for all model architectures on single dataset."""
+    # Setting hidden and output dimensions for model consistency
     HID, OUT = 96, 2
-    # All baselines receive the same hidden size and output dimensionality so
-    # the comparison focuses on architecture rather than representation width.
+    # Creating model instances: all baselines receive same hidden size for fair comparison
     models_cfg = {
         "GraphSAGE": GraphSAGEModel(in_dim, HID, OUT),
         "ChebNet": ChebNetModel(in_dim, HID, OUT),
@@ -1420,18 +1618,23 @@ def run_models_for_dataset(data, in_dim):
         "HSTGNN (Proposed)": HSTGNN(in_dim, HID, OUT),
     }
 
+    # Displaying training progress message
     print("\nTraining all models...\n")
+    # Initializing results dictionary
     results = {}
+    # Training each model with architecture-specific hyperparameters
     for name, mdl in models_cfg.items():
-        # HSTGNN is deeper and more expressive than the baselines, so it gets a
-        # slightly longer schedule and gentler optimisation settings.
+        # HSTGNN uses more aggressive training due to greater expressiveness
         if "HSTGNN" in name:
+            # Training HSTGNN with longer schedule and gentle optimization
             results[name] = train_model(
                 mdl.to(DEVICE), data, name=name,
                 max_ep=650, patience=120, lr=6e-4, warmup=35, wd=1e-4
             )
         else:
+            # Training baseline models with standard hyperparameters
             results[name] = train_model(mdl.to(DEVICE), data, name=name, max_ep=300, patience=45)
+    # Returning trained model results
     return results
 
 
@@ -1589,106 +1792,152 @@ def save_run_outputs(results, G_zoo, output_dir, topology_name):
     return df
 
 
+# Retrieving available topology files from Internet Zoo dataset
 def select_topology_files(base_path, count=5):
-    # Pick the largest usable topologies first so multi-mode experiments cover
-    # substantial and visually distinct ISP-scale graphs.
+    """Selecting largest topologies from Zoo dataset for comprehensive benchmark."""
+    # Initializing list to collect topology metadata
     rows = []
+    # Iterating through dataset files
     for name in os.listdir(base_path):
+        # Filtering for GML topology files
         if not name.endswith(".gml"):
             continue
+        # Constructing full file path
         path = os.path.join(base_path, name)
         try:
+            # Reading topology and collecting metadata
             G = nx.read_gml(path)
             rows.append((name, path, G.number_of_nodes(), G.number_of_edges()))
         except Exception:
+            # Skipping topologies that fail to parse
             continue
+    # Sorting by node count descending to select largest topologies first
     rows.sort(key=lambda item: (-item[2], item[0]))
+    # Returning requested count of largest topologies
     return rows[:count]
 
 
+# Running benchmark suite across multiple network topologies
 def run_multi_topology_suite(topology_count=5, output_root="multi_topology_runs", seed=SEED):
-    # Multi-mode is the benchmark suite: run the full training/evaluation stack
-    # on several named Zoo topologies and then aggregate the outputs.
+    """Executing full training pipeline on multiple Internet Zoo topologies and aggregating results."""
+    # Locating Internet Zoo dataset directory
     base_path = os.path.join("3D-internet-zoo-master", "3D-internet-zoo-master", "dataset")
+    # Selecting largest topologies for benchmark
     selected = select_topology_files(base_path, count=topology_count)
+    # Validating that sufficient topologies were found
     if not selected:
         raise RuntimeError("No usable GML topologies found in the Internet Zoo dataset.")
 
+    # Creating output directory for experiment results
     os.makedirs(output_root, exist_ok=True)
+    # Initializing lists for topology info and result frames
     topology_items = []
     summary_frames = []
 
+    # Processing each selected topology
     for idx, (name, path, _, _) in enumerate(selected, start=1):
+        # Extracting topology name without extension
         topology_name = os.path.splitext(name)[0]
+        # Creating output subdirectory for this topology
         output_dir = os.path.join(output_root, f"{idx:02d}_{topology_name}")
+        # Generating run-specific seed for reproducibility
         run_seed = seed + idx
+        # Printing section header for this topology run
         print("\n" + "=" * 75)
         print(f"Running topology {idx}/{len(selected)}: {topology_name}")
         print("=" * 75)
+        # Building dataset for this topology
         data, in_dim, N, G_zoo = build_dataset(seed=run_seed, topology_path=path)
+        # Displaying dataset statistics
         print(f"Nodes={N}  Edges={data.edge_index.shape[1]}  Features={in_dim}")
+        # Running all models on this topology
         results = run_models_for_dataset(data, in_dim)
+        # Saving results including plots and metrics
         df = save_run_outputs(results, G_zoo, output_dir, topology_name)
+        # Adding topology name to results dataframe
         df.insert(0, "Topology", topology_name)
+        # Collecting results for summary
         summary_frames.append(df)
         topology_items.append((topology_name, G_zoo))
 
+    # Concatenating results from all topologies into single dataframe
     summary_df = pd.concat(summary_frames, ignore_index=True)
+    # Saving combined results to CSV file
     summary_path = os.path.join(output_root, "all_topology_results.csv")
     summary_df.to_csv(summary_path, index=False)
+    # Saving visualization of all topologies used
     save_topology_gallery(topology_items, os.path.join(output_root, "topologies_used.png"))
+    # Printing completion messages
     print(f"\nSaved combined summary to {summary_path}")
     print(f"Saved topology gallery to {os.path.join(output_root, 'topologies_used.png')}")
 
 
+# Running single-topology experiment using combined Internet Zoo graphs
 def run_single_experiment(seed=SEED, output_dir="single_mode_run"):
-    # Single-mode is the default "one command" entrypoint for the combined-topology experiment.
+    """Executing full experiment on combined Internet Zoo topology without multi-mode overhead."""
+    # Displaying section header
     print("=" * 65)
     print("Building dataset...")
+    # Building combined dataset from multiple Zoo topologies
     data, in_dim, N, G_zoo = build_dataset(seed=seed)
+    # Displaying dataset statistics for verification
     print(f"Nodes={N}  Edges={data.edge_index.shape[1]}  Features={in_dim}")
     print("=" * 65)
+    # Running all models on combined topology
     results = run_models_for_dataset(data, in_dim)
+    # Saving results including evaluation metrics and visualizations
     save_run_outputs(results, G_zoo, output_dir, "Combined Internet Zoo")
+    # Displaying completion message
     print("\nAll plots and CSV saved. Done.")
 
 
+# Parsing command-line arguments and executing requested experiment mode
 def main():
-    """Parse CLI arguments and execute the requested experiment mode."""
-    parser = argparse.ArgumentParser(description="Run NDT experiments on one combined topology or multiple named topologies.")
+    """Orchestrating experiment execution by parsing CLI arguments and running selected mode."""
+    # Creating argument parser for experiment configuration
+    parser = argparse.ArgumentParser(description="Running NDT experiments on combined or multiple topologies.")
+    # Adding mode selection argument for single or multi topology benchmark
     parser.add_argument(
         "--mode",
         choices=["single", "multi"],
         default="single",
-        help="Use 'single' for the previous implementation, or 'multi' for the 5-topology suite.",
+        help="Using 'single' for combined topology or 'multi' for 5-topology suite.",
     )
+    # Adding topology count parameter for multi-mode experiments
     parser.add_argument(
         "--topology-count",
         type=int,
         default=5,
-        help="Number of topologies to use in multi mode.",
+        help="Specifying number of topologies to use in multi mode.",
     )
+    # Adding output directory parameter for multi-mode results
     parser.add_argument(
         "--output-root",
         default="multi_topology_runs",
-        help="Output folder for multi mode.",
+        help="Setting output folder for multi mode experiments.",
     )
+    # Adding output directory parameter for single-mode results
     parser.add_argument(
         "--single-output-dir",
         default="single_mode_run",
-        help="Output folder for single mode.",
+        help="Setting output folder for single mode experiments.",
     )
+    # Adding random seed parameter for reproducibility
     parser.add_argument(
         "--seed",
         type=int,
         default=SEED,
-        help="Random seed for dataset generation and training.",
+        help="Using random seed for dataset generation and training.",
     )
+    # Parsing command-line arguments
     args = parser.parse_args()
 
+    # Selecting experiment mode based on parsed arguments
     if args.mode == "multi":
+        # Running multi-topology benchmark suite
         run_multi_topology_suite(topology_count=args.topology_count, output_root=args.output_root, seed=args.seed)
     else:
+        # Running single combined topology experiment
         run_single_experiment(seed=args.seed, output_dir=args.single_output_dir)
 
 
