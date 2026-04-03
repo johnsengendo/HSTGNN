@@ -1,21 +1,9 @@
 # HSTGNN Network Digital Twin
-
-ThE repository runs the HSTGNN experiment for Network Digital Twins and generates:
-
-- `ndt_results.csv`
-- `bar_r2_score.png`
-- `bar_mae_rmse.png`
-- `radar_chart.png`
-- `training_curves.png`
-- `scatter_pred_vs_actual.png`
-- topology visualisations
-
 ## Repository Structure
 
 - `ndt_experiment.py`: main command-line entrypoint
 - `ndt_project/pipeline.py`: core experiment implementation
 - `requirements.txt`: Python dependencies
-- `run_experiment.ps1`: simple PowerShell runner for the default single experiment
 
 ## Before Running Anything
 
@@ -23,7 +11,7 @@ We download the Internet Topology Zoo dataset and place it in the working direct
 
 `3D-internet-zoo-master/3D-internet-zoo-master/dataset (here: https://github.com/afourmy/3D-internet-zoo)`
 
-In other words, after downloading and extracting the topology archive, our project folder should contain:
+After downloading and extracting the topology archive, our project folder will contain:
 
 ```text
 your-working-directory/
@@ -83,13 +71,6 @@ The folder `zoo_results/` will contain:
 - `network_topology.png`
 - `network_topology_geo.png`
 
-### Multi run
-
-The folder `multi_topology_runs/` will contain:
-
-- one results folder per topology
-- a combined CSV summary
-- a topology gallery image
 ## Sample Results
 <img src="bar_mae_rmse.png" width="1000"/> 
 ## Notes
