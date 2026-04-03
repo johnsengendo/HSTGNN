@@ -5,7 +5,7 @@
 - `ndt_project/pipeline.py`: core experiment implementation
 - `requirements.txt`: Python dependencies
 
-## Before Running Anything
+## Before Running
 
 We download the Internet Topology Zoo dataset and place it in the working directory with this exact folder layout:
 
