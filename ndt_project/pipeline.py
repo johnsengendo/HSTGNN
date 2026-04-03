@@ -8,7 +8,7 @@ PAPER CONTEXT:
   ResGatedGCN, GraphTransformer) on RIPE Atlas data for NDT performance
   prediction. GraphTransformer achieved R²=0.9763 (best), SAGE was fastest.
 
-THIS WORK PROPOSES:
+OUR FRAMEWORK PROPOSES:
   HSTGNN — Hybrid Spatio-Temporal GNN — a novel architecture combining:
     (1) Multi-Scale GNN Blocks: 3 parallel branches per block:
         - SAGEConv  (1-hop local neighbourhood aggregation)
@@ -23,40 +23,10 @@ THIS WORK PROPOSES:
     (4) Input skip connection: preserves raw feature gradients.
 
 DATASET:
-  Mixed-topology ISP graph:
-    - Barabási–Albert (600 nodes, m=4): ISP core scale-free topology
-    - Watts–Strogatz (400 nodes, k=6, p=0.15): metro ring topology
-    - 25 inter-domain bridge edges
-  Features (8-dim, topology-only — no target leakage):
-    degree, betweenness centrality, clustering, closeness, PageRank,
-    lat, lon, 2-hop degree sum
   Targets:
     RTT:  function of closeness, degree, 2-hop structure + noise
     Loss: function of betweenness, PageRank, 2-hop structure + noise
   Split: 60% train / 20% val / 20% test
-
-RESULTS SUMMARY (our experiment):
-  Model             R²      MAE     RMSE    Epochs  Time
-  GraphSAGE        0.5018  0.0550  0.0860   281    15s
-  ChebNet          0.4871  0.0581  0.0870   258    35s
-  GraphTransformer 0.4546  0.0590  0.0900   268    46s
-  ResGatedGCN      0.4319  0.0600  0.0920   138    31s
-  HSTGNN (Ours)    0.4191  0.0621  0.0926   123    39s
-
-  Paper (RIPE Atlas):
-  GraphTransformer 0.9763  0.0750  0.1340  ~140
-  ChebNet          0.9697  0.0910  0.1550   ~60
-  ResGatedGCN      0.9617  0.0870  0.1720   ~80
-  GraphSAGE        0.9484  0.1270  0.2190   ~20
-
-NOTE ON RESULTS:
-  On this CPU experiment with 300-350 max epochs, HSTGNN has not yet
-  fully converged due to its 3x larger computational graph per forward
-  pass. On GPU with 1000+ epochs, HSTGNN demonstrates clear superiority
-  owing to its multi-scale parallel branches capturing richer structural
-  representations. The architecture is designed for production deployment
-  with GPU acceleration and real time-series network snapshots.
-
 =============================================================================
 """
 
@@ -109,9 +79,9 @@ def load_zoo_topologies(base_path, seed=SEED):
     combined_G = nx.Graph()
     node_offset = 0
     
-    # We'll pick a subset if there are too many, or just try all and skip fails
+    # We pick a subset if there are too many, or just try all and skip fails
     # To keep it manageable and similar to original size (1000 nodes), 
-    # we'll stop after reaching ~1200 nodes or trying all files.
+    # we stop after reaching ~1200 nodes or trying all files.
     for f in files:
         try:
             G = nx.read_gml(os.path.join(base_path, f))
@@ -189,7 +159,7 @@ def build_dataset(seed=42):
     lons = np.zeros(N)
     has_geo = False
     
-    # Check if we have any geo data
+    # Checking if we have any geo data
     geo_nodes = [n for n in G.nodes() if 'Latitude' in G.nodes[n] and 'Longitude' in G.nodes[n]]
     if len(geo_nodes) > N * 0.5: # If more than half have geo, use it
         for n in range(N):
@@ -1253,7 +1223,7 @@ def topology_positions(G, seed=SEED):
 
 
 def preferred_node_labels(G, max_labels=32):
-    # Label only the most structurally important nodes to keep dense figures
+    # Labeling only the most structurally important nodes to keep dense figures
     # readable in the generated plots and reports.
     deg = dict(G.degree())
     ranked = sorted(G.nodes(), key=lambda n: (deg[n], G.nodes[n].get("Latitude", 0.0)), reverse=True)
@@ -1275,7 +1245,6 @@ def preferred_node_labels(G, max_labels=32):
 
 
 def save_geographic_topology_view(G, output_path, title):
-    # This plot is meant for presentations/reports, so it uses a more stylised
     # night-map aesthetic than the analytic topology diagnostic view below.
     pos = topology_positions(G)
     xs = np.array([pos[n][0] for n in G.nodes()], dtype=float)
@@ -1288,8 +1257,6 @@ def save_geographic_topology_view(G, output_path, title):
     fig, ax = plt.subplots(figsize=(16, 9), facecolor="#020617")
     ax.set_facecolor("#020617")
 
-    # Build a sophisticated satellite-night-view background
-    # Dark base for deep oceans
     ax.axhspan(min_y - pad_y, max_y + pad_y, color="#010409", zorder=0)
     
     # Layered gradients to simulate subtle landmass/bathymetry details
@@ -1300,8 +1267,7 @@ def save_geographic_topology_view(G, output_path, title):
                     facecolor='#0a192f', alpha=0.3, zorder=0)
     ax.add_patch(rect)
 
-    # Adding "city lights" effect / geographic highlights
-    # We use some random noise patches to simulate satellite night view texture
+    
     rng_geo = np.random.default_rng(42)
     for _ in range(15):
         rx = rng_geo.uniform(min_x - pad_x, max_x + pad_x)
@@ -1322,9 +1288,7 @@ def save_geographic_topology_view(G, output_path, title):
 
     deg = dict(G.degree())
     node_sizes = [max(30, min(140, 25 + deg[n] * 12)) for n in G.nodes()]
-    
-    # Node drawing with "neon city light" effect
-    # Outer glow
+   
     nx.draw_networkx_nodes(
         G, pos, ax=ax, node_color="#fde047", node_size=[s*1.8 for s in node_sizes],
         alpha=0.08, linewidths=0
@@ -1364,7 +1328,7 @@ def save_geographic_topology_view(G, output_path, title):
 
 
 def save_topology_plot(G, output_path, title):
-    # Generate a compact three-panel diagnostic view: overall topology,
+    # Generating a compact three-panel diagnostic view: overall topology,
     # highest-degree hubs, and closeness-centrality distribution.
     pos = topology_positions(G)
     deg_full = dict(G.degree())
@@ -1472,7 +1436,7 @@ def run_models_for_dataset(data, in_dim):
 
 
 def save_run_outputs(results, G_zoo, output_dir, topology_name):
-    # Centralise every artifact written by a run: tabular metrics, comparison
+    # Centralising every artifact written by a run: tabular metrics, comparison
     # plots, learning curves, prediction scatter plots, and topology visuals.
     os.makedirs(output_dir, exist_ok=True)
     rows = [{
@@ -1518,7 +1482,7 @@ def save_run_outputs(results, G_zoo, output_dir, topology_name):
     plt.savefig(os.path.join(output_dir, "bar_r2_score.png"), bbox_inches="tight")
     plt.close()
 
-    # Plot error metrics together because MAE and RMSE complement each other:
+    # Ploting error metrics together because MAE and RMSE complement each other:
     # MAE shows average error, while RMSE penalises larger misses.
     x = np.arange(len(model_names))
     w = 0.35
@@ -1541,7 +1505,6 @@ def save_run_outputs(results, G_zoo, output_dir, topology_name):
     plt.savefig(os.path.join(output_dir, "bar_mae_rmse.png"), bbox_inches="tight")
     plt.close()
 
-    # Normalise metrics onto a common 0-1 scale so a single radar chart can
     # compare overall model profiles across "higher is better" dimensions.
     r2_n = np.array(r2_vals)
     mae_n = 1 - (np.array(mae_vals) - min(mae_vals)) / (max(mae_vals) - min(mae_vals) + 1e-9)
@@ -1568,7 +1531,7 @@ def save_run_outputs(results, G_zoo, output_dir, topology_name):
     plt.savefig(os.path.join(output_dir, "radar_chart.png"), bbox_inches="tight")
     plt.close()
 
-    # Training curves are useful for spotting optimisation stability, plateau
+    # Training curves
     # behaviour, and whether the stronger model simply trained longer.
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     curve_colors = ["#1a237e", "#e67e22", "#2ecc71", "#e74c3c", "#fbc02d"]
