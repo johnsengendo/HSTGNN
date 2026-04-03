@@ -21,7 +21,7 @@ This repository runs the HSTGNN experiment for Network Digital Twins and generat
 
 You must download the Internet Topology Zoo dataset and place it in the working directory using this exact folder layout:
 
-`3D-internet-zoo-master/3D-internet-zoo-master/dataset`
+`3D-internet-zoo-master/3D-internet-zoo-master/dataset (here: https://github.com/afourmy/3D-internet-zoo)`
 
 In other words, after downloading and extracting the topology archive, your project folder should contain:
 
