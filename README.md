@@ -55,17 +55,7 @@ python -m pip install -r requirements.txt
 ```
 
 ## Running the Experiment
-
-### Option 1: Default single experiment
-
-This runs the main combined-topology experiment and saves the outputs to `zoo_results`:
-
-```powershell
-.\run_experiment.ps1
 ```
-
-### Option 2: Run directly from Python
-
 Single combined-topology run:
 
 ```powershell
