@@ -91,7 +91,7 @@ The folder `multi_topology_runs/` will contain:
 - a combined CSV summary
 - a topology gallery image
 ## Sample Results
-<img src="sample_results.jpg" width="1000"/> 
+<img src="bar_mae_rmse.png" width="1000"/> 
 ## Notes
 
 - `ndt_experiment.py` is a thin entrypoint. The main experiment logic lives in `ndt_project/pipeline.py`.
