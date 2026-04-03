@@ -10,41 +10,64 @@ This repository runs the HSTGNN experiment for Network Digital Twins and generat
 - `scatter_pred_vs_actual.png`
 - topology visualisations
 
-## Files to Push
+## Repository Structure
 
-At minimum, push these files:
+- `ndt_experiment.py`: main command-line entrypoint
+- `ndt_project/pipeline.py`: core experiment implementation
+- `requirements.txt`: Python dependencies
+- `run_experiment.ps1`: simple PowerShell runner for the default single experiment
+- `generate_zoo_pdf_report.py`: optional PDF summary report generator
 
-- `ndt_experiment.py`
-- `ndt_project/pipeline.py`
-- `requirements.txt`
-- `run_experiment.ps1`
-- `.gitignore`
+## Before You Run Anything
 
-If you also want the PDF summary workflow, include:
-
-- `generate_zoo_pdf_report.py`
-
-## Dataset Requirement
-
-The script expects the Internet Topology Zoo dataset at:
+You must download the Internet Topology Zoo dataset and place it in the working directory using this exact folder layout:
 
 `3D-internet-zoo-master/3D-internet-zoo-master/dataset`
 
-If you keep that folder in the repository, the experiment can run directly.
+In other words, after downloading and extracting the topology archive, your project folder should contain:
 
-## Quick Start
+```text
+your-working-directory/
+├── ndt_experiment.py
+├── ndt_project/
+├── requirements.txt
+├── run_experiment.ps1
+└── 3D-internet-zoo-master/
+    └── 3D-internet-zoo-master/
+        └── dataset/
+            ├── Aarnet.gml
+            ├── Abilene.gml
+            ├── ...
+```
+
+If the dataset is missing or placed somewhere else, the script will not be able to use the intended Internet Topology Zoo graphs.
+
+## Setup Instructions
+
+Recommended Python version: `Python 3.11`
 
 ### Windows PowerShell
+
+Open PowerShell in the project folder and run:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+## Running the Experiment
+
+### Option 1: Default single experiment
+
+This runs the main combined-topology experiment and saves the outputs to `zoo_results`:
+
+```powershell
 .\run_experiment.ps1
 ```
 
-### Direct Commands
+### Option 2: Run directly from Python
 
 Single combined-topology run:
 
@@ -58,20 +81,44 @@ Multi-topology suite:
 python ndt_experiment.py --mode multi --output-root multi_topology_runs
 ```
 
-Generate the PDF summary report after a `zoo_results` run:
+## Generating the PDF Summary Report
+
+After you run the single experiment and produce `zoo_results`, you can generate a PDF summary report with:
 
 ```powershell
 python generate_zoo_pdf_report.py
 ```
 
-## Outputs
+This will create:
 
-- `zoo_results/` is a good folder name for a single presentation-ready run.
-- `multi_topology_runs/` stores per-topology benchmark outputs for multi-mode experiments.
+- `Zoo_Results_Summary_Report.pdf`
+
+## Expected Outputs
+
+### Single run
+
+The folder `zoo_results/` will contain outputs such as:
+
+- `ndt_results.csv`
+- `bar_r2_score.png`
+- `bar_mae_rmse.png`
+- `radar_chart.png`
+- `training_curves.png`
+- `scatter_pred_vs_actual.png`
+- `network_topology.png`
+- `network_topology_geo.png`
+
+### Multi run
+
+The folder `multi_topology_runs/` will contain:
+
+- one results folder per topology
+- a combined CSV summary
+- a topology gallery image
 
 ## Notes
 
-- `ndt_experiment.py` is now a thin entrypoint. The main experiment logic lives in `ndt_project/pipeline.py`.
-- The experiment is deterministic with a fixed seed by default.
-- The script automatically generates plots and CSV outputs at the end of each run.
+- `ndt_experiment.py` is a thin entrypoint. The main experiment logic lives in `ndt_project/pipeline.py`.
+- The experiment uses a fixed seed by default for reproducibility.
 - If CUDA is available, PyTorch will use it automatically; otherwise the run falls back to CPU.
+- The single experiment is the best starting point for reproducing the presentation-ready figures.
