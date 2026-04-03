@@ -1,7 +1,5 @@
 """Thin entrypoint for the HSTGNN Network Digital Twin experiment.
-
-The implementation now lives in `ndt_project.pipeline` so the repository has a
-cleaner separation between the script users run and the experiment logic.
+The implementation lives in `ndt_project.pipeline`
 """
 
 from ndt_project.pipeline import main
