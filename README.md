@@ -1,6 +1,6 @@
 # HSTGNN Network Digital Twin
 
-This repository runs the HSTGNN experiment for Network Digital Twins and generates:
+ThE repository runs the HSTGNN experiment for Network Digital Twins and generates:
 
 - `ndt_results.csv`
 - `bar_r2_score.png`
@@ -17,13 +17,13 @@ This repository runs the HSTGNN experiment for Network Digital Twins and generat
 - `requirements.txt`: Python dependencies
 - `run_experiment.ps1`: simple PowerShell runner for the default single experiment
 
-## Before You Run Anything
+## Before Running Anything
 
-You must download the Internet Topology Zoo dataset and place it in the working directory using this exact folder layout:
+We download the Internet Topology Zoo dataset and place it in the working directory with this exact folder layout:
 
 `3D-internet-zoo-master/3D-internet-zoo-master/dataset (here: https://github.com/afourmy/3D-internet-zoo)`
 
-In other words, after downloading and extracting the topology archive, your project folder should contain:
+In other words, after downloading and extracting the topology archive, our project folder should contain:
 
 ```text
 your-working-directory/
@@ -39,15 +39,13 @@ your-working-directory/
             ├── ...
 ```
 
-If the dataset is missing or placed somewhere else, the script will not be able to use the intended Internet Topology Zoo graphs.
-
 ## Setup Instructions
 
 Recommended Python version: `Python 3.11`
 
 ### Windows PowerShell
 
-Open PowerShell in the project folder and run:
+We open PowerShell in the project folder and run:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -84,7 +82,7 @@ python ndt_experiment.py --mode multi --output-root multi_topology_runs
 
 ### Single run
 
-The folder `zoo_results/` will contain outputs such as:
+The folder `zoo_results/` will contain:
 
 - `ndt_results.csv`
 - `bar_r2_score.png`
@@ -108,4 +106,3 @@ The folder `multi_topology_runs/` will contain:
 - `ndt_experiment.py` is a thin entrypoint. The main experiment logic lives in `ndt_project/pipeline.py`.
 - The experiment uses a fixed seed by default for reproducibility.
 - If CUDA is available, PyTorch will use it automatically; otherwise the run falls back to CPU.
-- The single experiment is the best starting point for reproducing the presentation-ready figures.
