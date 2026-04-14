@@ -2,34 +2,6 @@
 =============================================================================
 HSTGNN vs Baseline GNNs for Network Digital Twins (NDTs)
 =============================================================================
-THIS WORK PROPOSES:
-  HSTGNN — Hybrid Spatio-Temporal GNN — a novel architecture combining:
-    (1) Multi-Scale GNN Blocks: 3 parallel branches per block:
-        - SAGEConv  (1-hop local neighbourhood aggregation)
-        - ChebConv K=3 (spectral multi-hop, up to 3-hop patterns)
-        - TransformerConv (attention-weighted neighbourhood)
-        → captures LOCAL, SPECTRAL and ATTENTION-based representations
-          simultaneously — no single baseline architecture can do this.
-    (2) Learnable Temporal Module: channel-wise scale/shift + FF network
-        simulating time-varying network state (link load fluctuations,
-        routing changes). Fully deterministic at eval → reliable gains.
-    (3) GAT Refinement: 4-head graph attention for final topology polish.
-    (4) Input skip connection: preserves raw feature gradients.
-
-DATASET:
-  Mixed-topology ISP graph:
-    - Barabási–Albert (600 nodes, m=4): ISP core scale-free topology
-    - Watts–Strogatz (400 nodes, k=6, p=0.15): metro ring topology
-    - 25 inter-domain bridge edges
-  Features (8-dim, topology-only — no target leakage):
-    degree, betweenness centrality, clustering, closeness, PageRank,
-    lat, lon, 2-hop degree sum
-  Targets:
-    RTT:  function of closeness, degree, 2-hop structure + noise
-    Loss: function of betweenness, PageRank, 2-hop structure + noise
-  Split: 70% train / 15% val / 15% test
-
-=============================================================================
 """
 
 import argparse
