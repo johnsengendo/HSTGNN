@@ -2,12 +2,6 @@
 =============================================================================
 HSTGNN vs Baseline GNNs for Network Digital Twins (NDTs)
 =============================================================================
-
-PAPER CONTEXT:
-  Zacarias et al. evaluated 4 GNN architectures (GraphSAGE, ChebNet,
-  ResGatedGCN, GraphTransformer) on RIPE Atlas data for NDT performance
-  prediction. GraphTransformer achieved R²=0.9763 (best), SAGE was fastest.
-
 THIS WORK PROPOSES:
   HSTGNN — Hybrid Spatio-Temporal GNN — a novel architecture combining:
     (1) Multi-Scale GNN Blocks: 3 parallel branches per block:
